@@ -1,0 +1,74 @@
+# RLQF Default Configuration
+# See docs/meta/notation.md for symbol definitions
+
+# === Actor: MACE (V_theta) ===
+actor:
+  r_max: 5.0
+  num_bessel: 8
+  num_polynomial_cutoff: 6
+  max_ell: 3
+  num_interactions: 2
+  hidden_irreps: "128x0e + 128x1o"
+  correlation: 3              # 3 = 4-body interactions
+  num_elements: 118
+  avg_num_neighbors: 10.0
+  # pretrained: "medium"      # Uncomment to start from MACE-MP-0 medium
+  # freeze_backbone: false
+
+# === Critic: OrbNet Denali (C_phi) ===
+critic:
+  model_name: "orb-mol-omat-v2"
+  device: "cpu"
+  use_energy_input: true      # C_phi(R, E_tilde) vs C_phi(R)
+  error_head_hidden: 256
+  trainable_backbone: false   # Freeze OrbNet, train error head only
+
+# === Exploration Policy (pi_psi) ===
+policy:
+  state_dim: 256
+  action_dim: 64
+  hidden_dim: 256
+  num_layers: 3
+  beta: 0.1                   # Entropy temperature (Soft RLQF)
+  log_std_min: -5.0
+  log_std_max: 2.0
+
+# === Training Loop ===
+training:
+  # Outer loop (exploration)
+  num_outer_steps: 1000
+  trajectory_length: 32       # T in the MDP
+  gamma: 0.99                 # Discount factor
+  lambda_reg: 0.01            # Configuration jump penalty
+  clip_epsilon: 0.2           # PPO clip
+
+  # Inner loop (MM training)
+  num_inner_steps: 10
+  inner_batch_size: 32
+  mu: 100.0                   # Energy/force loss balance
+  kappa: 1.0                  # Importance weight exponent
+  nu: 0.1                     # KL loss mixing coefficient
+
+  # Critic recalibration
+  critic_recalibrate_every: 50
+  critic_recalibrate_steps: 100
+
+  # Optimization
+  actor_lr: 1.0e-4
+  critic_lr: 1.0e-4
+  policy_lr: 3.0e-4
+  max_grad_norm: 1.0
+
+  # Replay buffer
+  buffer_capacity: 100000
+  alpha_mix: 0.5              # Fresh vs historical mixing
+
+  # Entropy
+  beta: 0.1
+
+  # Infrastructure
+  device: "cpu"
+  log_every: 10
+  checkpoint_every: 100
+  checkpoint_dir: "checkpoints"
+  seed: 42

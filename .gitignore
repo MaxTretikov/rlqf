@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Training outputs
+checkpoints/
+wandb/
+outputs/
+multirun/
+logs/
+
+# Model weights
+*.pt
+*.ckpt
+*.pth
+
+# Hydra
+outputs/
+multirun/
+
+# Linting / type-checking / testing caches
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Obsidian
+docs/.obsidian/
+
+# Data (large molecular datasets)
+data/
+*.xyz
+*.h5
+*.hdf5
+*.db
+!tests/fixtures/*
