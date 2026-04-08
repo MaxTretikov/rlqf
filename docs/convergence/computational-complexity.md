@@ -43,7 +43,7 @@ $$
 
 ## Amortized Critic Cost
 
-A critical feature of the RLQF framework is that the [[critic-loss|critic]] cost is *amortized*. The initial calibration requires $n_C$ QM evaluations, but subsequent critic queries cost only $C_{\text{critic}} \approx C_{\text{MM}}$. As the actor improves and the error landscape shifts, the critic requires periodic recalibration (see [[open-questions|critic drift]]), but the amortization ratio improves with each cycle:
+	A critical feature of the RLQF framework is that the [[critic-loss|critic]] cost is *amortized*. The initial calibration requires $n_C$ QM evaluations, but subsequent critic queries cost only $C_{\text{critic}} \approx C_{\text{MM}}$. As the actor improves and the error landscape shifts, the critic requires periodic recalibration (see [[open-questions|critic drift]]), but the amortization ratio improves with each cycle:
 
 $$
 \text{Amortization ratio at cycle } k = \frac{\sum_{j=1}^{k} B_j \cdot C_{\text{critic}}}{\sum_{j=1}^{k} n_{C,j} \cdot C_{\text{QM}}} \to 0 \text{ as } k \to \infty

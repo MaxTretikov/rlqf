@@ -225,12 +225,31 @@ class _MinimalPotential(nn.Module):
     def forward(self, data: dict[str, Tensor]) -> dict[str, Tensor]:
         z = data["atomic_numbers"].long()
         pos = data["positions"]  # (N_total, 3)
-        h = self.embed(z)
-        # Mix in positions so autograd can compute forces
-        pos_feat = pos.sum(dim=-1, keepdim=True).expand_as(h[:, :1])
-        h = h + 0.0 * pos_feat  # Identity contribution, but creates grad path
-        per_atom = self.mlp(h).squeeze(-1)  # (N_total,)
         batch = data.get("batch", torch.zeros(z.shape[0], dtype=torch.long, device=z.device))
+        h = self.embed(z)
+
+        # Mix in pairwise distance features so energy depends on positions.
+        # Without this, forces are always zero and the potential is useless.
+        edge_index = data.get("edge_index")
+        if edge_index is not None and edge_index.shape[1] > 0:
+            src, dst = edge_index[0], edge_index[1]
+            diff = pos[dst] - pos[src]  # (E, 3)
+            dist = diff.norm(dim=-1, keepdim=True)  # (E, 1)
+            # Aggregate mean distance feature per atom
+            dist_feat = torch.zeros(pos.shape[0], 1, device=pos.device, dtype=pos.dtype)
+            count = torch.zeros(pos.shape[0], 1, device=pos.device, dtype=pos.dtype)
+            dist_feat.scatter_add_(0, dst.unsqueeze(-1), dist)
+            count.scatter_add_(0, dst.unsqueeze(-1), torch.ones_like(dist))
+            dist_feat = dist_feat / (count + 1e-8)  # mean neighbor distance
+            # Inject into embedding: scale first feature by distance
+            h = h + dist_feat.expand_as(h[:, :1]) * 0.01
+        else:
+            # No edges: use absolute position as a fallback (not equivariant,
+            # but keeps the grad path alive for single-atom systems)
+            pos_feat = pos.sum(dim=-1, keepdim=True)
+            h = h + pos_feat.expand_as(h[:, :1]) * 0.01
+
+        per_atom = self.mlp(h).squeeze(-1)  # (N_total,)
         energy = torch.zeros(batch.max() + 1, device=z.device, dtype=per_atom.dtype)
         energy.scatter_add_(0, batch, per_atom)
         return {"energy": energy}

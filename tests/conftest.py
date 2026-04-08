@@ -16,8 +16,10 @@ import pytest
 import torch
 from torch import Tensor
 
-from rlqf.actor import MACEActor, MACEActorConfig
-from rlqf.critic import OrbNetCritic, OrbNetCriticConfig
+from rlqf.actor import MACEActor
+from rlqf.actor.mace_actor import MACEActorConfig
+from rlqf.critic import OrbNetCritic
+from rlqf.critic.orbnet_critic import OrbNetCriticConfig
 from rlqf.exploration.policy import ExplorationPolicy, PolicyConfig
 from rlqf.utils.graph import build_neighbor_list
 
@@ -265,7 +267,7 @@ def torsion_scan():
                 v = pos[idx] - origin
                 v_rot = (
                     v * cos_t
-                    + torch.cross(axis.unsqueeze(0), v.unsqueeze(0)).squeeze(0) * sin_t
+                    + torch.linalg.cross(axis.unsqueeze(0), v.unsqueeze(0)).squeeze(0) * sin_t
                     + axis * (axis @ v) * (1 - cos_t)
                 )
                 pos[idx] = origin + v_rot

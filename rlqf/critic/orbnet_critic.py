@@ -354,7 +354,21 @@ class _MinimalQMBackbone(nn.Module):
 
     def forward(self, data: dict[str, Tensor]) -> dict[str, Tensor]:
         z = data["atomic_numbers"].long()
+        pos = data["positions"]
         h = self.embed(z)
+
+        # Inject distance information so the backbone is position-aware
+        edge_index = data.get("edge_index")
+        if edge_index is not None and edge_index.shape[1] > 0:
+            src, dst = edge_index[0], edge_index[1]
+            dist = (pos[dst] - pos[src]).norm(dim=-1, keepdim=True)
+            dist_feat = torch.zeros(pos.shape[0], 1, device=pos.device, dtype=pos.dtype)
+            count = torch.zeros(pos.shape[0], 1, device=pos.device, dtype=pos.dtype)
+            dist_feat.scatter_add_(0, dst.unsqueeze(-1), dist)
+            count.scatter_add_(0, dst.unsqueeze(-1), torch.ones_like(dist))
+            dist_feat = dist_feat / (count + 1e-8)
+            h = h + dist_feat.expand_as(h[:, :1]) * 0.01
+
         h = self.mlp(h)  # (N_total, D)
         batch = data.get("batch", torch.zeros(z.shape[0], dtype=torch.long, device=z.device))
         num_graphs = batch.max().item() + 1

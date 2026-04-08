@@ -35,11 +35,19 @@ from rlqf.critic import OrbNetCritic
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _actor_predict(actor: MACEActor, data: dict[str, Tensor]) -> dict[str, Tensor]:
+    """Run actor forward *without* no_grad, since forces need autograd."""
+    # Ensure positions have grad
+    pos = data["positions"].detach().requires_grad_(True)
+    data_copy = {**data, "positions": pos}
+    return actor(data_copy)
+
+
 def _energy_mae(actor: MACEActor, critic: OrbNetCritic, data: dict) -> float:
     """Compute |V_theta(R) - E_qm(R)| for a single config."""
+    out = _actor_predict(actor, data)
+    e_pred = out["energy"].detach()
     with torch.no_grad():
-        actor_out = actor(data)
-        e_pred = actor_out["energy"]
         dummy = torch.zeros_like(e_pred)
         critic_out = critic(data, dummy)
         e_qm = critic_out["qm_energy"]
@@ -49,33 +57,31 @@ def _energy_mae(actor: MACEActor, critic: OrbNetCritic, data: dict) -> float:
 def _force_metrics(actor: MACEActor, data: dict) -> dict[str, float]:
     """Compute force-level metrics (MAE and cosine similarity).
 
-    Since the minimal fallback backbone doesn't produce QM forces,
-    we test internal consistency: F = -dV/dR.
+    Tests internal consistency: analytic forces F = -dV/dR vs numerical
+    finite differences.
     """
-    # Need grad for force computation
-    pos = data["positions"].detach().requires_grad_(True)
-    data_copy = {**data, "positions": pos}
-    actor_out = actor(data_copy)
-    forces = actor_out["forces"]
+    out = _actor_predict(actor, data)
+    forces = out["forces"].detach()
 
     # Numerical gradient check (central differences)
     eps = 1e-3
+    pos = data["positions"].detach()
     numerical_forces = torch.zeros_like(pos)
     for i in range(pos.shape[0]):
         for j in range(3):
-            pos_plus = pos.detach().clone()
+            pos_plus = pos.clone()
             pos_plus[i, j] += eps
             d_plus = {**data, "positions": pos_plus.requires_grad_(True)}
             e_plus = actor(d_plus)["energy"].detach()
 
-            pos_minus = pos.detach().clone()
+            pos_minus = pos.clone()
             pos_minus[i, j] -= eps
             d_minus = {**data, "positions": pos_minus.requires_grad_(True)}
             e_minus = actor(d_minus)["energy"].detach()
 
             numerical_forces[i, j] = -(e_plus - e_minus).sum() / (2 * eps)
 
-    analytic = forces.detach().flatten()
+    analytic = forces.flatten()
     numerical = numerical_forces.flatten()
 
     mae = (analytic - numerical).abs().mean().item()
@@ -97,14 +103,12 @@ class TestEnergyAccuracy:
 
     def test_water_energy_finite(self, actor, critic, water_equilibrium):
         """Actor produces a finite energy for water."""
-        with torch.no_grad():
-            out = actor(water_equilibrium)
+        out = _actor_predict(actor, water_equilibrium)
         assert torch.isfinite(out["energy"]).all(), "Energy is not finite"
 
     def test_methane_energy_finite(self, actor, critic, methane_equilibrium):
         """Actor produces a finite energy for methane."""
-        with torch.no_grad():
-            out = actor(methane_equilibrium)
+        out = _actor_predict(actor, methane_equilibrium)
         assert torch.isfinite(out["energy"]).all(), "Energy is not finite"
 
     def test_energy_varies_with_geometry(self, actor, water_equilibrium, make_molecule):
@@ -121,9 +125,8 @@ class TestEnergyAccuracy:
             water_equilibrium["atomic_numbers"].clone(),
         )
 
-        with torch.no_grad():
-            e_eq = actor(water_equilibrium)["energy"]
-            e_dist = actor(distorted)["energy"]
+        e_eq = _actor_predict(actor, water_equilibrium)["energy"].detach()
+        e_dist = _actor_predict(actor, distorted)["energy"].detach()
 
         assert not torch.allclose(e_eq, e_dist, atol=1e-6), (
             "Energy unchanged under geometry distortion — no structural sensitivity"
@@ -145,15 +148,12 @@ class TestEnergyAccuracy:
         # Two waters far apart (non-interacting)
         pos2 = torch.cat([pos1, pos1 + torch.tensor([20.0, 0.0, 0.0])], dim=0)
         z2 = torch.cat([z1, z1])
-        edge_index = torch.empty(2, 0, dtype=torch.long)  # no edges between them
-        from rlqf.utils.graph import build_neighbor_list
         data2 = make_molecule(pos2, z2)
 
-        with torch.no_grad():
-            e1 = actor(data1)["energy"].item()
-            # For the double system, manually set batch indices
-            data2["batch"] = torch.tensor([0, 0, 0, 1, 1, 1], dtype=torch.long)
-            e2_out = actor(data2)["energy"]
+        e1 = _actor_predict(actor, data1)["energy"].detach().item()
+        # For the double system, manually set batch indices
+        data2["batch"] = torch.tensor([0, 0, 0, 1, 1, 1], dtype=torch.long)
+        e2_out = _actor_predict(actor, data2)["energy"].detach()
 
         # Each water in the double-system should have roughly the same energy
         # as the single water (within 50% — we're testing extensivity, not accuracy)
@@ -190,12 +190,12 @@ class TestForceAccuracy:
 
     def test_forces_finite(self, actor, water_equilibrium):
         """Forces should be finite for a well-formed input."""
-        out = actor(water_equilibrium)
+        out = _actor_predict(actor, water_equilibrium)
         assert torch.isfinite(out["forces"]).all(), "Non-finite forces"
 
     def test_forces_shape(self, actor, water_equilibrium):
         """Forces should have the same shape as positions."""
-        out = actor(water_equilibrium)
+        out = _actor_predict(actor, water_equilibrium)
         assert out["forces"].shape == water_equilibrium["positions"].shape
 
     def test_analytic_numerical_force_consistency(self, actor, water_equilibrium):
@@ -242,8 +242,7 @@ class TestPESSmoothness:
 
         energies = []
         for data in configs:
-            with torch.no_grad():
-                e = actor(data)["energy"].item()
+            e = _actor_predict(actor, data)["energy"].detach().item()
             assert math.isfinite(e), f"Non-finite energy at d={distances[len(energies)]}"
             energies.append(e)
 
@@ -278,8 +277,7 @@ class TestPESSmoothness:
 
         energies = []
         for data in configs:
-            with torch.no_grad():
-                e = actor(data)["energy"].item()
+            e = _actor_predict(actor, data)["energy"].detach().item()
             assert math.isfinite(e)
             energies.append(e)
 
