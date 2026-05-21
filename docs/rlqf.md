@@ -1,4 +1,4 @@
-# Reinforcement Learning with Quantum Feedback: A Mathematical Thesis
+# Reinforcement Learning with Quantum Feedback
 
 ---
 

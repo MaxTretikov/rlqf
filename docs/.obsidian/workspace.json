@@ -11,10 +11,14 @@
             "id": "e8645bb89c16d44d",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "markdown",
+              "state": {
+                "file": "rlqf.md",
+                "mode": "source",
+                "source": false
+              },
               "icon": "lucide-file",
-              "title": "New tab"
+              "title": "rlqf"
             }
           }
         ]
@@ -179,7 +183,7 @@
       "bases:Create new base": false
     }
   },
-  "active": "98ead4bc9ce34d4e",
+  "active": "e8645bb89c16d44d",
   "lastOpenFiles": [
     "docs/rlqf.md",
     "docs/meta/references.md",
