@@ -128,9 +128,15 @@ class RLQFTrainer:
         self.policy = policy
         self.config = config or RLQFConfig()
         self.calibration_data = calibration_data or []
+        self._init_positions: Tensor | None = None
+        self._init_atomic_numbers: Tensor | None = None
 
         self.device = torch.device(self.config.device)
         self._setup_components()
+
+    def set_initial_molecule(self, positions: Tensor, atomic_numbers: Tensor) -> None:
+        self._init_positions = positions
+        self._init_atomic_numbers = atomic_numbers
 
     def _setup_components(self) -> None:
         """Initialize optimizers, losses, buffer, and move to device."""
@@ -234,10 +240,17 @@ class RLQFTrainer:
 
         trajectory: list[Experience] = []
 
-        # Initialize with a random configuration or last known state
-        positions = torch.randn(10, 3, device=self.device) * 2.0  # Placeholder init
-        atomic_numbers = torch.ones(10, dtype=torch.long, device=self.device) * 6  # Carbon
-        batch_idx = torch.zeros(10, dtype=torch.long, device=self.device)
+        if hasattr(self, '_init_positions') and self._init_positions is not None:
+            positions = self._init_positions.to(self.device)
+            atomic_numbers = self._init_atomic_numbers.to(self.device)
+        else:
+            positions = torch.tensor([
+                [0.000, 0.000, 0.000],   # O
+                [0.757, 0.586, 0.000],   # H
+                [-0.757, 0.586, 0.000],  # H
+            ], dtype=torch.float32, device=self.device)
+            atomic_numbers = torch.tensor([8, 1, 1], dtype=torch.long, device=self.device)
+        batch_idx = torch.zeros(positions.shape[0], dtype=torch.long, device=self.device)
 
         for t in range(self.config.trajectory_length):
             # Build graph from current configuration R_t
@@ -453,12 +466,12 @@ class RLQFTrainer:
                     data=batch_data,
                 )
 
-            # Energy-force loss — uses QM labels obtained during exploration
+            ref_forces = self._collect_ref_forces(experiences)
             ef_out = self.ef_loss_fn(
                 energy_pred=energy_pred,
                 forces_pred=forces_pred,
                 energy_ref=ref_energies,
-                forces_ref=torch.zeros_like(forces_pred),  # Use QM forces when available
+                forces_ref=ref_forces,
                 batch=batch_data["batch"],
                 importance_weights=importance_weights,
             )
@@ -539,6 +552,16 @@ class RLQFTrainer:
         n = max(self.config.critic_recalibrate_steps * len(self.calibration_data), 1)
         logger.info("Critic recalibration complete. Mean loss: %.6f", total_loss / n)
         return {"critic_loss": total_loss / n}
+
+    def _collect_ref_forces(self, experiences: list[Experience]) -> Tensor:
+        all_forces = []
+        for exp in experiences:
+            if exp.ref_forces is not None:
+                all_forces.append(exp.ref_forces)
+            else:
+                n_atoms = exp.config_data["positions"].shape[0]
+                all_forces.append(torch.zeros(n_atoms, 3, device=self.device))
+        return torch.cat(all_forces, dim=0)
 
     def _experiences_to_batch(
         self, experiences: list[Experience]

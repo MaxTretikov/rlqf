@@ -53,8 +53,9 @@ htmlcov/
 # Obsidian
 docs/.obsidian/
 
-# Data (large molecular datasets)
+# Data (large molecular datasets, not the rlqf.data package)
 data/
+!rlqf/data/
 *.xyz
 *.h5
 *.hdf5
